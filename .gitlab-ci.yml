@@ -250,6 +250,6 @@ list-content-library:
     name: ${PACKER_DOCKER_IMAGE}
   stage: list-library
   script: 
-    - govc library.info -json ${VC_CONTENT_LIBRARY}
+    - govc library.info -json ${VC_CONTENT_LIBRARY}/*
   only:
     - tags
