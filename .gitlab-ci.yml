@@ -1,7 +1,7 @@
 # 环境变量定义，生产环境不建议在此配置敏感定义（例如：密码）
 variables:
   DOCKER_DRIVER: "overlay2"
-  GITLAB_TOKEN: "LMjbb3hoZrs1M3p5t_8s"
+  GITLAB_TOKEN: "XXXXXXXXXXXXX"
 # 定义用于执行packer、govc和genisoimage的Docker镜像，需要提前构建
   PACKER_DOCKER_IMAGE: "harbor.corp.local/library/packer-gitops:v1.0"
 # 定义用于创建模板的vCenter相关信息，密码部分推荐在Gitlab的项目变量定义，以提高安全性。
@@ -14,7 +14,7 @@ variables:
   VC_FOLDER: "Templates"
   VC_DATASTORE: "SSD_DATASTORE"
 # 定义VM相关配置
-  VM_NETWORK: "vlan4043"
+  VM_NETWORK: "vlan100"
   VM_CPU: 2
   VM_MEM: 4096
   VM_DISK: 81920
