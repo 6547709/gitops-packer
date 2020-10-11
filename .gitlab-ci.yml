@@ -1,0 +1,255 @@
+# 环境变量定义，生产环境不建议在此配置敏感定义（例如：密码）
+variables:
+  DOCKER_DRIVER: "overlay2"
+  GITLAB_TOKEN: "LMjbb3hoZrs1M3p5t_8s"
+# 定义用于执行packer、govc和genisoimage的Docker镜像，需要提前构建
+  PACKER_DOCKER_IMAGE: "harbor.corp.local/library/packer-gitops:v1.0"
+# 定义用于创建模板的vCenter相关信息，密码部分推荐在Gitlab的项目变量定义，以提高安全性。
+  VC_SERVER: "vcenter.corp.local"
+  VC_USERNAME: "Administrator@vsphere.local"
+  VC_PASSWORD: "VMware1!"
+  VC_DATACENTER: "Labs-DC02"
+  VC_CLUSTER: "DC02-Cluster"
+  VC_CONTENT_LIBRARY: "DC02-VM-Templates"
+  VC_FOLDER: "Templates"
+  VC_DATASTORE: "SSD_DATASTORE"
+# 定义VM相关配置
+  VM_NETWORK: "vlan4043"
+  VM_CPU: 2
+  VM_MEM: 4096
+  VM_DISK: 81920
+  VM_VIDEO_RAM: 16384
+  VM_HW_VERSION: 17
+# 定义安装光盘的存储路径，Winodws系统需要根据安装光盘的不同调整自动应答文件中的INDEX(61行)。
+  OS_CENTOS7_ISO: "[SSD_DATASTORE] 0-ISO/CentOS-7-x86_64-DVD-1908.iso"
+  OS_CENTOS8_ISO: "[SSD_DATASTORE] 0-ISO/CentOS-8.2.2004-x86_64-dvd1.iso"
+  OS_UBUNTU18_ISO: "[SSD_DATASTORE] 0-ISO/ubuntu-18.04.4-server-amd64.iso"
+  OS_UBUNTU19_ISO: "[SSD_DATASTORE] 0-ISO/ubuntu-19.10-server-amd64.iso"
+  OS_UBUNTU20_ISO: "[SSD_DATASTORE] 0-ISO/ubuntu-20.04-legacy-server-amd64.iso"
+  OS_WINDOWS2016_ISO: "[SSD_DATASTORE] 0-ISO/cn_windows_server_2016_vl_x64_dvd_20201011update.iso"
+  OS_WINDOWS2019_ISO: "[SSD_DATASTORE] 0-ISO/cn_windows_server_2019_x64_dvd_20201011update.iso"
+# 定义CentOS8自动应答光盘的存储路径，每次编译会自动覆盖之前版本。
+  OS_CENTOS8_KS_ISO: "[SSD_DATASTORE] 0-ISO/centos8-ks.iso"
+  OS_CENTOS8_GUI_KS_ISO: "[SSD_DATASTORE] 0-ISO/centos8-gui-ks.iso"
+# 定义VMware Tools安装路径
+  OS_WINDOWS_VMTOOLS: "[SSD_DATASTORE] 0-ISO/VMware-tools-windows-11.1.5.iso"
+# 定义Windows系统使用pvscsi驱动的路径，此文件只能同时被一个VM挂载，需要为每个系统配置一个文件，如果某次构建失败，一定要清理未删除的VM，否则可能导致由于文件被占用，软驱无法加载，构建失败。
+  OS_WIN2016_DRIVER: "[SSD_DATASTORE] 0-ISO/win2016-pvscsi-Windows8.flp"
+  OS_WIN2019_DRIVER: "[SSD_DATASTORE] 0-ISO/win2019-pvscsi-Windows8.flp"
+# 定义GOVC环境变量，用于上传CentOS8自动应答的ISO（ks.cfg）
+  GOVC_URL: ${VC_SERVER}
+  GOVC_USERNAME: ${VC_USERNAME}
+  GOVC_PASSWORD: ${VC_PASSWORD}
+# 此配置用于定义Linux root和ops用户、Windows Administrator和ops用户的密码,密码推荐在Gitlab的项目变量定义，以提高安全性。
+  LINUX_SSH_PASSWORD: "VMware1!"
+  WINDOWS_PASSWORD: "VMware1!"
+# 此变量用于定义虚拟机名称，最终会以-latest作为后缀存储到vCenter内容库中。
+  CENTOS7_VM_NAME: "CentOS7"
+  CENTOS8_VM_NAME: "CentOS8"
+  CENTOS8_GUI_VM_NAME: "CentOS8-GUI"
+  UBUNTU18_VM_NAME: "Ubuntu1804"
+  UBUNTU19_VM_NAME: "Ubuntu1910"
+  UBUNTU20_VM_NAME: "Ubuntu2004"
+  WIN2016_VM_NAME: "Win2016"
+  WIN2019_VM_NAME: "Win2019"
+# 定义Windows安装KEY，根据不同的安装版本配置。
+  WIN2016_KEY: "CB7KF-BWN84-R7R2Y-793K2-8XDDG"
+  WIN2019_KEY: "WMDGN-G9PQG-XVVXX-R3X43-63DFG"
+#定义CI/CD的阶段，devliver阶段用于生成版本号，build阶段用于镜像打包、上传到镜像仓库和清理镜像，dev-deploy阶段会自动部署到开发环境，prod-deploy阶段需要手工触发。
+stages:
+  - deliver
+  - validate
+  - build-iso
+  - build
+  - list-library
+
+#采用语义版本管理，基于commit消息增加版本号和生成Release文档，此阶段不会进行打包和部署，仅仅是添加版本tag。
+deliver:
+  image:
+    name: harbor.corp.local/library/sematic-delivery-gitlab:9.1.0
+    entrypoint: [""]
+  stage: deliver
+  only:
+    - master
+  script:
+    - semantic-delivery-gitlab --token ${GITLAB_TOKEN}
+
+#此阶段用于验证packer配置文件是否正确。
+packer-validate:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: validate
+  script:
+    - packer validate ./CentOS8/centos-vsphere.json
+    - packer validate ./CentOS8-GUI/centos-vsphere.json
+    - packer validate ./CentOS7/centos-vsphere.json
+    - packer validate ./Ubuntu18/ubuntu-vsphere.json
+    - packer validate ./Ubuntu19/ubuntu-vsphere.json
+    - packer validate ./Ubuntu20/ubuntu-vsphere.json
+    - packer validate ./Win2016/win2016-vsphere.json
+    - packer validate ./Win2019/win2019-vsphere.json
+  only:
+    - tags
+  dependencies:
+    - deliver
+#此阶段用于构建CentOS8所需的ISO文件，并上传到vSphere存储中。
+#for CentOS8。
+CentOS8-ks-iso-build:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build-iso
+  script:
+    - cd CentOS8
+    - sed -i 's/__PASSWORD__/'"${LINUX_SSH_PASSWORD}"'/g' ./ks.cfg
+    - genisoimage -o centos8-ks.iso -V "OEMDRV" ./ks.cfg
+    - govc datastore.upload -ds ${VC_DATASTORE} centos8-ks.iso 0-ISO/centos8-ks.iso
+  only:
+    changes:
+      - CentOS8/ks.cfg
+#for CentOS8-GUI。
+CentOS8-GUI-ks-iso-build:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build-iso
+  script:
+    - cd CentOS8-GUI
+    - sed -i 's/__PASSWORD__/'"${LINUX_SSH_PASSWORD}"'/g' ./ks.cfg
+    - genisoimage -o centos8-gui-ks.iso -V "OEMDRV" ./ks.cfg
+    - govc datastore.upload -ds ${VC_DATASTORE} centos8-gui-ks.iso 0-ISO/centos8-gui-ks.iso
+  only:
+    changes:
+      - CentOS8-GUI/ks.cfg
+#此阶段用于生成虚拟机模板，模板名基于job中变量定义，最终模板使用-latest最为后缀。
+#for CentOS8。
+packer-build-CentOS8:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build
+  variables:
+    VM_NAME: ${CENTOS8_VM_NAME}
+  script: 
+    - cd CentOS8
+    - packer build --force centos-vsphere.json
+  only:
+    - tags
+  dependencies:
+    - packer-validate
+#for CentOS8-GUI。
+packer-build-CentOS8-GUI:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build
+  variables:
+    VM_NAME: ${CENTOS8_GUI_VM_NAME}
+  script: 
+    - cd CentOS8-GUI
+    - packer build --force centos-vsphere.json
+  only:
+    - tags
+  dependencies:
+    - packer-validate
+#for CentOS7。
+packer-build-CentOS7:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build
+  variables:
+    VM_NAME: ${CENTOS7_VM_NAME}
+  script: 
+    - cd CentOS7
+    - sed -i 's/__PASSWORD__/'"${LINUX_SSH_PASSWORD}"'/g' ./ks.cfg
+    - packer build --force centos-vsphere.json
+  only:
+    - tags
+  dependencies:
+    - packer-validate
+#for Ubuntu18。
+packer-build-Ubuntu18:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build
+  variables:
+    VM_NAME: ${UBUNTU18_VM_NAME}
+  script: 
+    - cd Ubuntu18
+    - sed -i 's/__PASSWORD__/'"${LINUX_SSH_PASSWORD}"'/g' ./preseed.cfg
+    - packer build --force ubuntu-vsphere.json
+  only:
+    - tags
+  dependencies:
+    - packer-validate
+#for Ubuntu19。
+packer-build-Ubuntu19:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build
+  variables:
+    VM_NAME: ${UBUNTU19_VM_NAME}
+  script: 
+    - cd Ubuntu19
+    - sed -i 's/__PASSWORD__/'"${LINUX_SSH_PASSWORD}"'/g' ./preseed.cfg
+    - packer build --force ubuntu-vsphere.json
+  only:
+    - tags
+  dependencies:
+    - packer-validate
+#for Ubuntu20。
+packer-build-Ubuntu20:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build
+  variables:
+    VM_NAME: ${UBUNTU20_VM_NAME}
+  script: 
+    - cd Ubuntu20
+    - sed -i 's/__PASSWORD__/'"${LINUX_SSH_PASSWORD}"'/g' ./preseed.cfg
+    - packer build --force ubuntu-vsphere.json
+  only:
+    - tags
+  dependencies:
+    - packer-validate
+#for Windows Server 2016。
+packer-build-Win2016:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build
+  variables:
+    VM_NAME: ${WIN2016_VM_NAME}
+    OS_WINDOWS_DRIVER: ${OS_WIN2016_DRIVER}
+  script: 
+    - cd Win2016
+    - sed -i 's/__PASSWORD__/'"${WINDOWS_PASSWORD}"'/g' ./Autounattend.xml
+    - sed -i 's/__LICENSEKEY__/'"${WIN2016_KEY}"'/g' ./Autounattend.xml
+    - packer build --force win2016-vsphere.json
+  timeout: 120m
+  only:
+    - tags
+  dependencies:
+    - packer-validate
+#for Windows Server 2019。
+packer-build-Win2019:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: build
+  variables:
+    VM_NAME: ${WIN2019_VM_NAME}
+    OS_WINDOWS_DRIVER: ${OS_WIN2019_DRIVER}
+  script: 
+    - cd Win2019
+    - sed -i 's/__PASSWORD__/'"${WINDOWS_PASSWORD}"'/g' ./Autounattend.xml
+    - sed -i 's/__LICENSEKEY__/'"${WIN2019_KEY}"'/g' ./Autounattend.xml
+    - packer build --force win2019-vsphere.json
+  timeout: 120m
+  only:
+    - tags
+  dependencies:
+    - packer-validate
+#list vcenter content library。
+list-content-library:
+  image:
+    name: ${PACKER_DOCKER_IMAGE}
+  stage: list-library
+  script: 
+    - govc library.info -json ${VC_CONTENT_LIBRARY}
+  only:
+    - tags
