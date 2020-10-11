@@ -1,0 +1,114 @@
+
+{
+  "builders": [
+    {
+      "CPUs": "{{user `vm-cpu-num`}}",
+      "RAM": "{{user `vm-mem-size`}}",
+      "RAM_reserve_all": false,
+      "boot_command": [
+        "<esc><wait>",
+        "linux ks=hd:sr1:/ks.cfg<enter>"
+      ],
+      "boot_order": "disk,cdrom",
+      "boot_wait": "10s",
+      "cluster": "{{user `vsphere-cluster`}}",
+      "content_library_destination" : {
+        "library": "{{user `vsphere-content-library`}}",
+        "name": "{{user `vm-name`}}-latest",
+        "ovf": "true",
+        "destroy": "true"
+      },
+      "convert_to_template": false,
+      "datacenter": "{{user `vsphere-datacenter`}}",
+      "datastore": "{{user `vsphere-datastore`}}",
+      "disk_controller_type": "pvscsi",
+      "folder": "{{user `vm-folder`}}",
+      "guest_os_type": "centos8_64Guest",
+      "insecure_connection": "true",
+      "remove_cdrom": "true",
+      "iso_paths": [
+        "{{user `iso_url`}}",
+        "{{user `ks_iso`}}"
+      ],
+      "network_adapters": [
+        {
+          "network": "{{user `vsphere-network`}}",
+          "network_card": "vmxnet3"
+        }
+      ],
+      "notes": "Build via Packer in {{isotime \"2006-01-02\"}}, Version:{{user `template_version`}} .",
+      "password": "{{user `vsphere-password`}}",
+      "ssh_password": "{{user `linux_ssh_password`}}",
+      "ssh_username": "root",
+      "storage": [
+        {
+          "disk_size": "{{user `vm-disk-size`}}",
+          "disk_thin_provisioned": true
+        }
+      ],
+      "type": "vsphere-iso",
+      "username": "{{user `vsphere-user`}}",
+      "vcenter_server": "{{user `vsphere-server`}}",
+      "video_ram": "{{user `vm-video-ram`}}",
+      "vm_name": "{{user `vm-name`}}-{{user `template_version`}}",
+      "vm_version": "{{user `vm-version`}}"
+    }
+  ],
+  "provisioners": [
+    {
+      "inline": [
+        "yum install -y https://mirrors.aliyun.com/epel/epel-release-latest-8.noarch.rpm",
+        "sed -i 's|^#baseurl=https://download.fedoraproject.org/pub|baseurl=https://mirrors.aliyun.com|' /etc/yum.repos.d/epel*",
+        "sed -i 's|^metalink|#metalink|' /etc/yum.repos.d/epel*",
+        "dnf -y install https://www.elrepo.org/elrepo-release-8.el8.elrepo.noarch.rpm",
+        "rpm --import https://www.elrepo.org/RPM-GPG-KEY-elrepo.org",
+        "dnf -y --enablerepo=elrepo-kernel install kernel-ml",
+        "dnf -y --enablerepo=elrepo-kernel install kernel-ml-{devel,headers}",
+        "yum -y update",
+        "yum -y install open-vm-tools-desktop",
+        "yum clean all",
+        "systemctl enable --now cockpit.socket",
+        "reboot"
+      ],
+      "type": "shell",
+      "expect_disconnect": true
+    },
+    {
+      "inline": [
+        "grub2-set-default 0",
+        "grub2-mkconfig -o /boot/grub2/grub.cfg",
+        "rm -rf /root/anaconda-ks.cfg",
+        "rm -rf /root/original-ks.cfg"
+      ],
+      "type": "shell",
+      "pause_before": "40s",
+      "expect_disconnect": true
+    }
+  ],
+  "sensitive-variables": [
+    "vsphere-password",
+    "ssh_password",
+    "password"
+  ],
+  "variables": {
+    "iso_url": "{{env `OS_CENTOS8_ISO`}}",
+    "ks_iso": "{{env `OS_CENTOS8_GUI_KS_ISO`}}",
+    "linux_ssh_password": "{{env `LINUX_SSH_PASSWORD`}}",
+    "template_version": "{{env `CI_COMMIT_TAG`}}",
+    "vm-cpu-num": "{{env `VM_CPU`}}",
+    "vm-disk-size": "{{env `VM_DISK`}}",
+    "vm-folder": "{{env `VC_FOLDER`}}",
+    "vm-mem-size": "{{env `VM_MEM`}}",
+    "vm-name": "{{env `VM_NAME`}}",
+    "vm-version": "{{env `VM_HW_VERSION`}}",
+    "vm-video-ram": "{{env `VM_VIDEO_RAM`}}",
+    "vsphere-cluster": "{{env `VC_CLUSTER`}}",
+    "vsphere-content-library": "{{env `VC_CONTENT_LIBRARY`}}",
+    "vsphere-datacenter": "{{env `VC_DATACENTER`}}",
+    "vsphere-datastore": "{{env `VC_DATASTORE`}}",
+    "vsphere-network": "{{env `VM_NETWORK`}}",
+    "vsphere-password": "{{env `VC_PASSWORD`}}",
+    "vsphere-server": "{{env `VC_SERVER`}}",
+    "vsphere-user": "{{env `VC_USERNAME`}}"
+  }
+}
